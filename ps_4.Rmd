@@ -1,0 +1,192 @@
+---
+title: "ps_4.Rmd"
+author: "Celia Concannon"
+date: "2/22/2019"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(readr)
+library(tidyverse)
+library(gt)
+library(dplyr)
+
+orig <- read_csv(
+  "ps_4_elections-poll-nc09-3.csv",
+                 col_types = cols(
+                   .default = col_character(),
+                   turnout_scale = col_double(),
+                   turnout_score = col_double(),
+                   w_LV = col_double(),
+                   w_RV = col_double(),
+                   final_weight = col_double(),
+                   timestamp = col_datetime(format = "")))
+# We use col_types like in class, the code would still run without it but would produce an annoying message
+```
+
+
+```{r, echo=FALSE}
+dem <- orig %>%
+  count(response) %>%
+  filter(response == "Dem")
+# Count records the number of responses for each category, filter narrows this down to just democrats which is what we're looking for
+```
+
+```{r, echo=FALSE}
+diff <- orig %>%
+  count(response) %>%
+  spread(response, n) %>%
+  mutate(rep_und = Rep - Und)
+# Here I again count the occurences of each response
+# Spread creates a table that displays each category of responses with the number of occurences
+# Next I used mutate to create a new variable rep_und which is formed by subtracting the number of Undecided from Republicans
+```
+
+```{r, echo=FALSE}
+diffval <- orig %>%
+  filter(gender != gender_combined) %>%
+  nrow()
+# filter selects for all the individuals where gender is not equal to gender_combined
+# nrow counts the number of these individuals
+```
+
+
+```{r, echo=FALSE}
+white <- orig %>%
+  filter(race_eth == "White") %>%
+  filter(file_race_black != "White") %>%
+  nrow()
+# the first filter selects for all the instances where race_eth is listed as White and then piped into the next filter which selects within that for all the instances where file_race_black is not listed as White
+```
+
+```{r, echo=FALSE}
+rep_time <- orig %>% 
+  filter(response == "Rep") %>%
+  select(timestamp) %>%
+  arrange(timestamp) %>%
+  slice(1)
+
+dem_time <- orig %>%
+  filter(response == "Dem") %>%
+  select(timestamp) %>%
+  arrange(timestamp) %>%
+  slice(1)
+
+time_difference <- as.numeric(rep_time - dem_time)
+
+# Here I created two variables the same way but by just filtering for different responses.  Then using Select, arrange, and slice(1), the first response of each is isolated.
+# Next I created time_difference by subtracting the two variables
+```
+
+There were `r dem$n[1]` respondents who supported the Democratic candidate.
+
+There were `r diff$rep_und[1]` more respondents who favored the Republican candidate than who were Undecided.
+
+There are two gender variables (gender and gender_combined). There are `r diffval` individuals for whom these variables have different values.
+
+There are `r white` respondents listed as “White” under race_eth who are not listed as “White” under file_race_black.
+
+The first response of Rep came `r round(time_difference)`  minutes (rounded to the nearest minute) before the first response of Dem.
+
+
+
+```{r make_chart, echo=FALSE, results="asis", warning=FALSE}
+orig %>%
+  select(final_weight, response, race_eth) %>%
+# These are the only variables we care about for the purpose of the graph
+  mutate(race_eth = fct_relevel(race_eth, c("White", "Black", "Hispanic", "Asian", "Other"))) %>%
+# fct_relevel orders each race the way it is shown in the template graph
+  group_by(race_eth, response) %>%
+  summarize(total = sum(final_weight)) %>%
+  filter(race_eth != "[DO NOT READ] Don't know/Refused") %>%
+# This gets ride of the [DO NOT READ]s which we dont want in our data
+  spread(key = response, value = total, fill = 0) %>%
+# Creates the table
+  ungroup() %>%
+  mutate(all = Dem + Rep + Und + `3`) %>%
+  mutate(Dem = Dem / all) %>% 
+  mutate(Rep = Rep / all) %>%
+  mutate(Und = Und / all) %>%
+# Created a new variable called "all" which is the sum of all responses from each category
+# Used new variable all to create values we will later turn into percentages
+  select(-all, -`3`) %>%
+  na_if(0) %>%
+# Gets rid of the weird value that is returned under Undecided-Hispanic
+  gt() %>%
+    tab_header(
+      title = "Polling Results in North Carolina 9th Congressional District") %>%
+    tab_source_note(
+      source_note = "Source: New York Times Upshot/Siena Data") %>%
+    cols_label(
+      race_eth = "Race",
+      Dem = "DEM.",
+      Rep = "REP.",
+      Und = "UND.") %>%
+    fmt_percent(columns = vars(Dem, Rep, Und),
+                decimals = 0)
+# gt() allows us to finalize the graph now that we have the values in place, changing title, and header names
+# fmt_percent turns our values into percentages and adds the percent sign
+# The decimal = 0 argument is so that there are only whole number percentages in the graph
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+orig %>%
+  select(educ, final_weight) %>%
+# These are the two variables we will be graphing together
+  filter(educ != "[DO NOT READ] Refused") %>%
+# Gets rid of the [DO NOT READ]s, as we did before
+  mutate(educ = fct_relevel(educ, c("Grade school", "High school", "Some college or trade school", "Bachelors' degree", "Graduate or Professional Degree"))) %>%
+# Reorders the categories from educ on the y-axis as they are shown in the template graph
+  ggplot(aes(x = educ, y = final_weight)) +
+  geom_violin() +
+  coord_flip() +
+# Flips the x and y axis, without this function the graph doesn't look like a violin plot
+  geom_jitter(size = 1, alpha = 0.5, height = 0) +
+# Jitter adds the points as seen below, and the arguments within allow their appearance to be played with until I found something that resembled the template graph more closely
+  labs(
+    title = "More Educated Matter Less in North Carolina 9th",
+    subtitle = "Poll gives more weight to people who are less likely to participate in polls",
+    source = "New York Times Upshot/Siena College 2018 live polls"
+  ) +
+  ylab("Weight Given to Respondent in Calculating Poll Results") +
+  xlab("")
+# Labs names the graph and axis
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+orig %>%
+  filter(ager != "[DO NOT READ] Refused") %>%
+  filter(partyid != "[DO NOT READ] Refused") %>%
+  filter(response != "3") %>%
+  ggplot(aes(x = ager, y = response, color = partyid)) +
+  geom_jitter() +
+  labs(x = NULL) +
+  coord_flip() +
+  theme(legend.position = "top") +
+  scale_color_manual(breaks = c("Democrat", "Republican", "Independent (No party)", "or as a member of another political party"),
+                        values=c("blue", "yellow", "green", "red")) +
+  labs(
+    title = "How Registered Party Members Responded Broken Down by Age",
+    source = "New York Times Upshot/Siena College 2018 live polls"
+  ) +
+  xlab("Age Group") +
+  ylab("") +
+  theme(legend.title=element_blank())
+
+# Filtered ager and partid to take out [DO NOT READ] Refused because that is irrelevant to the graph
+# After reading Data Visualization I chose to do a geom_jitter plot
+# I had to play around with scale_color_manual because I wanted those who responded Democrat to be represented by a blue dot and Republicans by a red dot since those are their typical colors
+# Labs added title, source, and axis labels
+# theme(legend.title = element_blank()) removed the legend title to clean up the graph
+# I wanted my graph to show how party registration affected responses, and how this was affected by age
+# From my graph it looks like older democrats are more likely to respond Republican
+```
+
+## Colleagues: Tate Green
